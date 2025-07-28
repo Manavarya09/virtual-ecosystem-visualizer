@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ecosystem Evolution Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden; /* Prevent scrolling */
+        }
+        #main-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        #simulation-and-controls {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+        }
+        #p5-canvas-container {
+            flex: 3;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #1a202c;
+            padding: 1rem;
+            min-width: 0;
+        }
+        #controls-and-chart {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #2d3748;
+            color: white;
+            padding: 1rem;
+            overflow-y: auto;
+            min-width: 300px;
+        }
+        canvas#p5-canvas {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 0.5rem;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        .control-panel h2, .control-panel h3 {
+            border-bottom: 1px solid #4a5568;
+            padding-bottom: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+        .btn-green { background-color: #38a169; color: white; }
+        .btn-green:hover { background-color: #2f855a; }
+        .btn-red { background-color: #e53e3e; color: white; }
+        .btn-red:hover { background-color: #c53030; }
+        .btn-blue { background-color: #3182ce; color: white; }
+        .btn-blue:hover { background-color: #2b6cb0; }
+        .stat-card {
+            background-color: #4a5568;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #718096;
+            border-radius: 5px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #3182ce;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+    </style>
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+</head>
+<body class="bg-gray-800">
+
+    <div id="main-container">
+        <div id="simulation-and-controls">
+            <!-- P5.js Canvas for the simulation -->
+            <div id="p5-canvas-container"></div>
+
+            <!-- Controls and Chart Panel -->
+            <div id="controls-and-chart" class="control-panel">
+                <h2 class="text-2xl font-bold mb-4">Ecosystem Controls</h2>
+                
+                <!-- Simulation Control Buttons -->
+                <div class="grid grid-cols-3 gap-2 mb-4">
+                    <button id="start-pause-btn" class="btn btn-green">Start</button>
+                    <button id="reset-btn" class="btn btn-red">Reset</button>
+                    <button id="add-food-btn" class="btn btn-blue">Add Food</button>
+                </div>
+
+                <!-- Simulation Stats -->
+                <div class="stat-card">
+                    <strong>Time:</strong> <span id="time-display">0</span>
+                </div>
+                 <div class="stat-card">
+                    <strong>Total Creatures:</strong> <span id="creature-count-display">0</span>
+                </div>
+
+                <!-- Add New Species Section -->
+                <div class="mt-4">
+                    <h3 class="text-xl font-bold">Add New Species</h3>
+                    <div class="space-y-3 mt-3 bg-gray-700 p-4 rounded-lg">
+                        <div>
+                            <label for="species-size">Size (Metabolism):</label>
+                            <input type="range" id="species-size" min="5" max="20" value="10" class="w-full">
+                        </div>
+                        <div>
+                            <label for="species-speed">Speed:</label>
+                            <input type="range" id="species-speed" min="0.5" max="4" value="2" step="0.1" class="w-full">
+                        </div>
+                        <div>
+                            <label for="species-sense">Sense Radius:</label>
+                            <input type="range" id="species-sense" min="20" max="150" value="70" class="w-full">
+                        </div>
+                         <div>
+                            <label for="species-type">Type:</label>
+                            <select id="species-type" class="w-full bg-gray-600 rounded p-1">
+                                <option value="herbivore">Herbivore</option>
+                                <option value="carnivore">Carnivore</option>
+                            </select>
+                        </div>
+                        <button id="add-species-btn" class="w-full btn btn-blue mt-2">Add 10 of this Species</button>
+                    </div>
+                </div>
+
+                <!-- Population Chart -->
+                <div class="mt-6 flex-grow flex flex-col">
+                    <h3 class="text-xl font-bold mb-2">Population Dynamics</h3>
+                    <div class="relative flex-grow">
+                         <canvas id="population-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- GLOBAL VARIABLES ---
+        let world;
+        let p5Instance;
+        let populationChart;
+        let isRunning = false;
+        let time = 0;
+        const history = [];
+        const MAX_HISTORY = 100;
+        let speciesCounter = 0;
+
+        // --- P5.JS SKETCH ---
+        const sketch = (p) => {
+            p.setup = () => {
+                const container = document.getElementById('p5-canvas-container');
+                const canvas = p.createCanvas(container.clientWidth, container.clientHeight);
+                canvas.id('p5-canvas');
+                canvas.parent(container);
+                world = new World(p.width, p.height);
+                p.frameRate(30);
+                p.noLoop(); // Start paused
+            };
+
+            p.draw = () => {
+                p.background(45, 55, 72); // Dark blue-gray background
+                if (isRunning) {
+                    world.update();
+                    time++;
+                    updateStats();
+                    if (time % 10 === 0) { // Update chart every 10 frames
+                        updateChart();
+                    }
+                }
+                world.display(p);
+            };
+
+            p.windowResized = () => {
+                const container = document.getElementById('p5-canvas-container');
+                p.resizeCanvas(container.clientWidth, container.clientHeight);
+                world.width = p.width;
+                world.height = p.height;
+            };
+        };
+
+        // --- WORLD CLASS ---
+        class World {
+            constructor(width, height) {
+                this.width = width;
+                this.height = height;
+                this.creatures = [];
+                this.food = [];
+                this.foodSpawnRate = 0.1; // Chance to spawn food each frame
+                this.maxFood = 150;
+            }
+
+            addCreature(creature) {
+                this.creatures.push(creature);
+            }
+            
+            addSpecies(count, size, speed, sense, type) {
+                const speciesColor = `hsl(${speciesCounter * 137.5 % 360}, 70%, 60%)`;
+                const speciesId = `S${speciesCounter}`;
+                for (let i = 0; i < count; i++) {
+                    const x = Math.random() * this.width;
+                    const y = Math.random() * this.height;
+                    const creature = new Creature(x, y, {
+                        size,
+                        speed,
+                        sense,
+                        color: speciesColor,
+                        speciesId,
+                        type
+                    });
+                    this.addCreature(creature);
+                }
+                speciesCounter++;
+            }
+
+            spawnFood(num = 1) {
+                 for(let i = 0; i < num; i++) {
+                    if (this.food.length < this.maxFood) {
+                        this.food.push({
+                            x: Math.random() * this.width,
+                            y: Math.random() * this.height,
+                            energy: 25
+                        });
+                    }
+                 }
+            }
+
+            update() {
+                // Spawn new food
+                if (Math.random() < this.foodSpawnRate) {
+                    this.spawnFood();
+                }
+
+                // Update creatures
+                for (let i = this.creatures.length - 1; i >= 0; i--) {
+                    const creature = this.creatures[i];
+                    creature.update(this);
+                    if (creature.isDead()) {
+                        // Sometimes, a dead creature becomes food
+                        if(Math.random() < 0.5) {
+                            this.food.push({x: creature.x, y: creature.y, energy: creature.size * 2});
+                        }
+                        this.creatures.splice(i, 1);
+                    }
+                }
+            }
+
+            display(p) {
+                // Display food
+                p.noStroke();
+                p.fill(113, 224, 133); // Green for food
+                for (const f of this.food) {
+                    p.rect(f.x, f.y, 5, 5);
+                }
+
+                // Display creatures
+                for (const creature of this.creatures) {
+                    creature.display(p);
+                }
+            }
+        }
+
+        // --- CREATURE CLASS ---
+        class Creature {
+            constructor(x, y, genes) {
+                this.x = x;
+                this.y = y;
+                this.genes = genes; // { size, speed, sense, color, speciesId, type }
+                this.size = genes.size;
+                this.speed = genes.speed;
+                this.senseRadius = genes.sense;
+                this.color = genes.color;
+                this.speciesId = genes.speciesId;
+                this.type = genes.type;
+
+                this.energy = 100;
+                this.maxEnergy = 200;
+                this.reproductionCost = 80;
+                this.reproductionThreshold = 150;
+                
+                // Movement target
+                this.target = null;
+            }
+
+            isDead() {
+                return this.energy <= 0;
+            }
+
+            update(world) {
+                // Metabolism: lose energy over time, faster for bigger/faster creatures
+                this.energy -= (this.size * 0.01) + (this.speed * 0.02);
+
+                // Find target if we don't have one
+                if (!this.target) {
+                    this.findTarget(world);
+                }
+
+                // Move towards target
+                if (this.target) {
+                    const dx = this.target.x - this.x;
+                    const dy = this.target.y - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    this.x += (dx / dist) * this.speed;
+                    this.y += (dy / dist) * this.speed;
+
+                    // Eat if close enough
+                    if (dist < this.size / 2) {
+                        this.eat(world);
+                    }
+                } else {
+                    // Wander randomly if no target
+                    this.wander(world);
+                }
+
+                // Reproduction
+                if (this.energy > this.reproductionThreshold) {
+                    this.reproduce(world);
+                }
+
+                // Keep within bounds
+                this.x = (this.x + world.width) % world.width;
+                this.y = (this.y + world.height) % world.height;
+            }
+            
+            findTarget(world) {
+                let closestTarget = null;
+                let min_dist = Infinity;
+
+                const targets = this.type === 'herbivore' ? world.food : world.creatures.filter(c => c.type === 'herbivore' && c !== this);
+
+                for (const target of targets) {
+                    if (this.type === 'carnivore' && target === this) continue; // Can't eat self
+                    const d = Math.sqrt((this.x - target.x) ** 2 + (this.y - target.y) ** 2);
+                    if (d < this.senseRadius && d < min_dist) {
+                        min_dist = d;
+                        closestTarget = target;
+                    }
+                }
+                this.target = closestTarget;
+            }
+
+            eat(world) {
+                if (!this.target) return;
+
+                if (this.type === 'herbivore') {
+                     const foodIndex = world.food.indexOf(this.target);
+                     if (foodIndex > -1) {
+                        this.energy += this.target.energy;
+                        world.food.splice(foodIndex, 1);
+                     }
+                } else if (this.type === 'carnivore') {
+                    const creatureIndex = world.creatures.indexOf(this.target);
+                    if(creatureIndex > -1 && this.target.type === 'herbivore') {
+                        this.energy += this.target.energy * 0.8; // Energy transfer efficiency
+                        this.target.energy = 0; // Kill the target
+                    }
+                }
+
+                this.energy = Math.min(this.energy, this.maxEnergy);
+                this.target = null;
+            }
+
+            wander(world) {
+                 if(!this.wanderAngle) this.wanderAngle = Math.random() * 2 * Math.PI;
+                 this.wanderAngle += (Math.random() - 0.5) * 0.5; // Change direction slightly
+                 this.x += Math.cos(this.wanderAngle) * this.speed * 0.5;
+                 this.y += Math.sin(this.wanderAngle) * this.speed * 0.5;
+            }
+
+            reproduce(world) {
+                this.energy -= this.reproductionCost;
+                
+                // Mutation
+                const newGenes = { ...this.genes };
+                newGenes.size += (Math.random() - 0.5) * 2; // Mutate size by +/- 1
+                newGenes.speed += (Math.random() - 0.5) * 0.2;
+                newGenes.sense += (Math.random() - 0.5) * 10;
+
+                // Clamp values
+                newGenes.size = Math.max(5, Math.min(20, newGenes.size));
+                newGenes.speed = Math.max(0.5, Math.min(4, newGenes.speed));
+                newGenes.sense = Math.max(20, Math.min(150, newGenes.sense));
+
+                const offspring = new Creature(this.x, this.y, newGenes);
+                world.addCreature(offspring);
+            }
+
+            display(p) {
+                p.stroke(0, 150);
+                p.strokeWeight(1);
+                p.fill(this.color);
+                p.ellipse(this.x, this.y, this.size, this.size);
+                
+                // Energy bar
+                const energyRatio = this.energy / this.maxEnergy;
+                p.noStroke();
+                p.fill(255, 0, 0);
+                p.rect(this.x - this.size/2, this.y + this.size/2 + 2, this.size, 3);
+                p.fill(0, 255, 0);
+                p.rect(this.x - this.size/2, this.y + this.size/2 + 2, this.size * energyRatio, 3);
+
+                // Sense radius for carnivores
+                if (this.type === 'carnivore') {
+                    p.noFill();
+                    p.stroke(255, 100, 100, 50);
+                    p.ellipse(this.x, this.y, this.senseRadius * 2, this.senseRadius * 2);
+                }
+            }
+        }
+
+        // --- UI & CHART FUNCTIONS ---
+        function setupUI() {
+            const startPauseBtn = document.getElementById('start-pause-btn');
+            const resetBtn = document.getElementById('reset-btn');
+            const addFoodBtn = document.getElementById('add-food-btn');
+            const addSpeciesBtn = document.getElementById('add-species-btn');
+
+            startPauseBtn.addEventListener('click', () => {
+                isRunning = !isRunning;
+                if (isRunning) {
+                    p5Instance.loop();
+                    startPauseBtn.textContent = 'Pause';
+                    startPauseBtn.classList.remove('btn-green');
+                    startPauseBtn.classList.add('btn-red');
+                } else {
+                    p5Instance.noLoop();
+                    startPauseBtn.textContent = 'Start';
+                    startPauseBtn.classList.remove('btn-red');
+                    startPauseBtn.classList.add('btn-green');
+                }
+            });
+
+            resetBtn.addEventListener('click', () => {
+                isRunning = false;
+                p5Instance.noLoop();
+                startPauseBtn.textContent = 'Start';
+                startPauseBtn.classList.remove('btn-red');
+                startPauseBtn.classList.add('btn-green');
+                
+                time = 0;
+                speciesCounter = 0;
+                world = new World(p5Instance.width, p5Instance.height);
+                history.length = 0;
+                resetChart();
+                updateStats();
+                p5Instance.redraw();
+            });
+            
+            addFoodBtn.addEventListener('click', () => {
+                world.spawnFood(20);
+                if(!isRunning) p5Instance.redraw();
+            });
+
+            addSpeciesBtn.addEventListener('click', () => {
+                const size = parseFloat(document.getElementById('species-size').value);
+                const speed = parseFloat(document.getElementById('species-speed').value);
+                const sense = parseFloat(document.getElementById('species-sense').value);
+                const type = document.getElementById('species-type').value;
+                world.addSpecies(10, size, speed, sense, type);
+                if (!isRunning) {
+                    p5Instance.redraw();
+                }
+                updateStats();
+            });
+        }
+
+        function updateStats() {
+            document.getElementById('time-display').textContent = time;
+            document.getElementById('creature-count-display').textContent = world.creatures.length;
+        }
+
+        function setupChart() {
+            const ctx = document.getElementById('population-chart').getContext('2d');
+            populationChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: []
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { 
+                            ticks: { color: 'white' },
+                            grid: { color: 'rgba(255,255,255,0.1)' }
+                        },
+                        y: { 
+                            beginAtZero: true,
+                            ticks: { color: 'white' },
+                            grid: { color: 'rgba(255,255,255,0.1)' }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: 'white' } }
+                    },
+                    animation: {
+                        duration: 200
+                    }
+                }
+            });
+        }
+        
+        function resetChart() {
+            populationChart.data.labels = [];
+            populationChart.data.datasets = [];
+            populationChart.update();
+        }
+
+        function updateChart() {
+            const populationCounts = {};
+            
+            // Initialize counts for all known species to handle extinctions
+            populationChart.data.datasets.forEach(ds => {
+                populationCounts[ds.label] = 0;
+            });
+
+            // Count current populations
+            world.creatures.forEach(c => {
+                if (!populationCounts[c.speciesId]) {
+                    populationCounts[c.speciesId] = 0;
+                }
+                populationCounts[c.speciesId]++;
+            });
+
+            // Add new species to chart if they don't exist
+            Object.keys(populationCounts).forEach(speciesId => {
+                if (!populationChart.data.datasets.some(ds => ds.label === speciesId)) {
+                    const creature = world.creatures.find(c => c.speciesId === speciesId);
+                    if (creature) {
+                        populationChart.data.datasets.push({
+                            label: speciesId,
+                            data: Array(populationChart.data.labels.length).fill(0), // Pad with zeros
+                            borderColor: creature.color,
+                            backgroundColor: creature.color.replace(')', ', 0.5)').replace('hsl', 'hsla'),
+                            tension: 0.2,
+                            pointRadius: 0,
+                        });
+                    }
+                }
+            });
+
+            // Update data for all species
+            populationChart.data.labels.push(time);
+            populationChart.data.datasets.forEach(dataset => {
+                dataset.data.push(populationCounts[dataset.label] || 0);
+            });
+            
+            // Limit history
+            if(populationChart.data.labels.length > MAX_HISTORY) {
+                populationChart.data.labels.shift();
+                populationChart.data.datasets.forEach(dataset => {
+                    dataset.data.shift();
+                });
+            }
+
+            populationChart.update();
+        }
+
+        // --- INITIALIZATION ---
+        window.onload = () => {
+            p5Instance = new p5(sketch);
+            setupUI();
+            setupChart();
+        };
+    </script>
+</body>
+</html>
